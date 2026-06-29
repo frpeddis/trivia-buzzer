@@ -4,6 +4,7 @@ import { dirname, join } from "node:path";
 import { networkInterfaces } from "node:os";
 import express from "express";
 import { Server } from "socket.io";
+import { QUESTIONS } from "./questions.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const PORT = process.env.PORT || 3000;
@@ -12,10 +13,8 @@ const PORT = process.env.PORT || 3000;
 // Personalizzabile via variabile d'ambiente: REF_PASSWORD=miapwd npm start
 const REF_PASSWORD = process.env.REF_PASSWORD || "arbitro";
 
-// Palette dei round. Il round 1 e' rosso (come da requisito: "grande pulsante rosso").
-// Ogni nuova sessione/reset avanza al colore successivo, in modo che il pulsante
-// cambi colore ad ogni domanda.
-const ROUND_COLORS = [
+// Palette: il colore del pulsante/opzioni cambia ad ogni domanda.
+const COLORS = [
   { key: "red",     hex: "#ff2d55", glow: "#ff2d5566" },
   { key: "blue",    hex: "#0a84ff", glow: "#0a84ff66" },
   { key: "green",   hex: "#30d158", glow: "#30d15866" },
@@ -27,36 +26,54 @@ const ROUND_COLORS = [
 ];
 
 // ---- Stato di gioco (in memoria) ----
-const game = {
-  round: 1,
-  buzzOpen: false,
-  // Map<socketId, { nickname, joinedAt }>
-  participants: new Map(),
-  // Array<{ socketId, nickname, at }> in ordine di prenotazione
-  buzzes: [],
-};
+function freshGame() {
+  return {
+    phase: "lobby",            // "lobby" | "question" | "revealed"
+    questionNo: 0,             // numero progressivo di domande poste
+    colorIndex: 0,
+    current: null,             // { idx, q, o, c }
+    answers: new Map(),        // socketId -> indice opzione scelta (domanda corrente)
+    used: new Set(),           // indici domande gia' usate (no ripetizioni)
+    // i partecipanti e i punteggi sopravvivono finche' non si fa reset completo
+    participants: new Map(),   // socketId -> { nickname, joinedAt }
+    scores: new Map(),         // socketId -> punti
+  };
+}
+let game = freshGame();
 
-function colorForRound(round) {
-  return ROUND_COLORS[(round - 1) % ROUND_COLORS.length];
+function colorAt(i) { return COLORS[i % COLORS.length]; }
+
+function pickRandomQuestion() {
+  if (game.used.size >= QUESTIONS.length) game.used.clear(); // esaurite: rimescola
+  let idx;
+  do { idx = Math.floor(Math.random() * QUESTIONS.length); } while (game.used.has(idx));
+  game.used.add(idx);
+  return idx;
 }
 
+// Stato pubblico. La risposta corretta (c) viene inclusa SOLO in fase "revealed".
 function publicState() {
+  const color = colorAt(game.colorIndex);
+  let question = null;
+  if (game.current) {
+    question = { no: game.questionNo, q: game.current.q, o: game.current.o };
+    if (game.phase === "revealed") question.correct = game.current.c;
+  }
   const participants = [...game.participants.entries()].map(([id, p]) => ({
     id,
     nickname: p.nickname,
+    score: game.scores.get(id) || 0,
+    answered: game.answers.has(id),
   }));
   return {
-    round: game.round,
-    buzzOpen: game.buzzOpen,
-    color: colorForRound(game.round),
-    participants,
+    phase: game.phase,
+    color,
+    question,
+    answeredCount: game.answers.size,
     participantCount: participants.length,
-    buzzes: game.buzzes.map((b, i) => ({
-      position: i + 1,
-      socketId: b.socketId,
-      nickname: b.nickname,
-      at: b.at,
-    })),
+    totalQuestions: QUESTIONS.length,
+    usedCount: game.used.size,
+    participants,
   };
 }
 
@@ -66,60 +83,39 @@ app.use(express.static(join(__dirname, "public")));
 const httpServer = createServer(app);
 const io = new Server(httpServer);
 
-function broadcast() {
-  io.emit("state", publicState());
-}
+const broadcast = () => io.emit("state", publicState());
 
 io.on("connection", (socket) => {
-  // Invia subito lo stato corrente al nuovo arrivato.
   socket.emit("state", publicState());
+  socket.data.isReferee = false;
 
   // ---- Partecipante ----
   socket.on("participant:join", (rawName, ack) => {
     const nickname = String(rawName || "").trim().slice(0, 24);
-    if (!nickname) {
-      ack?.({ ok: false, error: "Nickname non valido." });
-      return;
-    }
+    if (!nickname) return ack?.({ ok: false, error: "Nickname non valido." });
     const taken = [...game.participants.values()].some(
       (p) => p.nickname.toLowerCase() === nickname.toLowerCase()
     );
-    if (taken) {
-      ack?.({ ok: false, error: "Nickname gia' in uso, scegline un altro." });
-      return;
-    }
+    if (taken) return ack?.({ ok: false, error: "Nickname già in uso, scegline un altro." });
     game.participants.set(socket.id, { nickname, joinedAt: Date.now() });
+    if (!game.scores.has(socket.id)) game.scores.set(socket.id, 0);
     ack?.({ ok: true, id: socket.id });
     broadcast();
   });
 
-  socket.on("participant:buzz", (_, ack) => {
+  socket.on("participant:answer", (optionIndex, ack) => {
     const p = game.participants.get(socket.id);
-    if (!p) {
-      ack?.({ ok: false, error: "Non sei registrato." });
-      return;
-    }
-    if (!game.buzzOpen) {
-      ack?.({ ok: false, error: "Le prenotazioni sono chiuse." });
-      return;
-    }
-    const already = game.buzzes.find((b) => b.socketId === socket.id);
-    if (already) {
-      ack?.({ ok: true, position: game.buzzes.indexOf(already) + 1 });
-      return;
-    }
-    // Timestamp autorevole lato server: chi arriva prima vince.
-    game.buzzes.push({ socketId: socket.id, nickname: p.nickname, at: Date.now() });
-    ack?.({ ok: true, position: game.buzzes.length });
+    if (!p) return ack?.({ ok: false, error: "Non sei registrato." });
+    if (game.phase !== "question") return ack?.({ ok: false, error: "Non puoi rispondere ora." });
+    const i = Number(optionIndex);
+    if (!Number.isInteger(i) || i < 0 || i > 3) return ack?.({ ok: false, error: "Opzione non valida." });
+    game.answers.set(socket.id, i); // modificabile fino alla chiusura: sovrascrive
+    ack?.({ ok: true, selected: i });
     broadcast();
   });
 
   // ---- Arbitro ----
-  socket.data.isReferee = false;
-
   socket.on("referee:auth", (pw, ack) => {
-    // Confronto tollerante: ignora spazi iniziali/finali e maiuscole/minuscole,
-    // cosi' la maiuscola automatica dei telefoni non blocca l'accesso.
     const norm = (s) => String(s == null ? "" : s).trim().toLowerCase();
     if (norm(pw) === norm(REF_PASSWORD)) {
       socket.data.isReferee = true;
@@ -130,32 +126,49 @@ io.on("connection", (socket) => {
     }
   });
 
-  socket.on("referee:open", () => {
+  // Prossima domanda: estrae una domanda random non ancora usata, cambia colore.
+  socket.on("referee:next", () => {
     if (!socket.data.isReferee) return;
-    game.buzzOpen = true;
-    game.buzzes = [];
+    if (game.phase === "question") return; // chiudi prima la domanda corrente
+    const idx = pickRandomQuestion();
+    const base = QUESTIONS[idx];
+    game.current = { idx, q: base.q, o: base.o, c: base.c };
+    game.answers = new Map();
+    game.questionNo += 1;
+    game.colorIndex += 1; // colore diverso per ogni domanda
+    game.phase = "question";
     broadcast();
   });
 
-  socket.on("referee:close", () => {
+  // Chiudi domanda e mostra la risposta: applica i punteggi (+1 / -1).
+  socket.on("referee:reveal", () => {
     if (!socket.data.isReferee) return;
-    game.buzzOpen = false;
+    if (game.phase !== "question" || !game.current) return;
+    const correct = game.current.c;
+    for (const [id] of game.participants) {
+      const a = game.answers.get(id);
+      if (a === undefined) continue;            // chi non risponde: 0
+      const delta = a === correct ? 1 : -1;     // +1 giusta, -1 sbagliata
+      game.scores.set(id, (game.scores.get(id) || 0) + delta);
+    }
+    game.phase = "revealed";
     broadcast();
   });
 
-  // Reset: chiude, azzera le prenotazioni, avanza al round successivo
-  // (cosi' il pulsante cambia colore per la nuova domanda).
-  socket.on("referee:reset", () => {
+  // Reset completo: azzera punteggi, domande usate e stato. I partecipanti restano collegati.
+  socket.on("referee:resetGame", () => {
     if (!socket.data.isReferee) return;
-    game.buzzOpen = false;
-    game.buzzes = [];
-    game.round += 1;
+    const participants = game.participants;
+    game = freshGame();
+    game.participants = participants;
+    for (const [id] of participants) game.scores.set(id, 0);
     broadcast();
   });
 
   socket.on("disconnect", () => {
     if (game.participants.delete(socket.id)) {
-      game.buzzes = game.buzzes.filter((b) => b.socketId !== socket.id);
+      game.scores.delete(socket.id);
+      game.answers.delete(socket.id);
       broadcast();
     }
   });
@@ -169,12 +182,8 @@ httpServer.listen(PORT, () => {
       if (net.family === "IPv4" && !net.internal) addrs.push(net.address);
     }
   }
-  console.log("\n  🎯 Trivia Buzzer in esecuzione\n");
+  console.log("\n  🧠 Quiz Italia — banco di " + QUESTIONS.length + " domande\n");
   console.log(`  Su questo computer:  http://localhost:${PORT}`);
-  for (const a of addrs) {
-    console.log(`  Dai telefoni (WiFi): http://${a}:${PORT}`);
-  }
-  console.log("\n  L'arbitro apre il link e sceglie \"Arbitro\".");
-  console.log("  I partecipanti aprono lo stesso link e scelgono \"Partecipante\".");
+  for (const a of addrs) console.log(`  Dai telefoni (WiFi): http://${a}:${PORT}`);
   console.log(`\n  🔐 Password arbitro: \"${REF_PASSWORD}\"  (cambiala con REF_PASSWORD=... npm start)\n`);
 });
