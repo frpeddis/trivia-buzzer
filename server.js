@@ -118,7 +118,10 @@ io.on("connection", (socket) => {
   socket.data.isReferee = false;
 
   socket.on("referee:auth", (pw, ack) => {
-    if (String(pw) === REF_PASSWORD) {
+    // Confronto tollerante: ignora spazi iniziali/finali e maiuscole/minuscole,
+    // cosi' la maiuscola automatica dei telefoni non blocca l'accesso.
+    const norm = (s) => String(s == null ? "" : s).trim().toLowerCase();
+    if (norm(pw) === norm(REF_PASSWORD)) {
       socket.data.isReferee = true;
       ack?.({ ok: true });
       socket.emit("state", publicState());
