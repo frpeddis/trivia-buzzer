@@ -1,0 +1,581 @@
+<!doctype html>
+<html lang="it">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, maximum-scale=1" />
+<meta name="theme-color" content="#0a1530" />
+<title>Trivia Buzzer</title>
+<style>
+  :root {
+    /* sfondo a livelli di blu */
+    --bg-1: #16306f;
+    --bg-2: #0c1c44;
+    --bg-3: #060e26;
+    --bg-soft: #0f1d3f;
+    --surface: #142149;
+    --surface-2: #1a2a59;
+    --line: #2a3c6f;
+    --text: #eef2ff;
+    --muted: #93a0c8;
+    /* accent injettato dal server in base al round */
+    --accent: #ff2d55;
+    --glow: #ff2d5566;
+  }
+
+  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  html, body { margin: 0; height: 100%; }
+  body {
+    background:
+      radial-gradient(1100px 640px at 50% -8%, color-mix(in srgb, var(--accent) 20%, transparent), transparent 56%),
+      radial-gradient(900px 620px at 88% 12%, rgba(46,96,200,.30), transparent 52%),
+      radial-gradient(820px 700px at 6% 86%, rgba(24,52,130,.42), transparent 56%),
+      linear-gradient(160deg, var(--bg-1) 0%, var(--bg-2) 46%, var(--bg-3) 100%);
+    background-attachment: fixed;
+    color: var(--text);
+    font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    min-height: 100dvh;
+    transition: background 700ms cubic-bezier(.16,1,.3,1);
+    overflow-x: hidden;
+  }
+
+  .wrap {
+    max-width: 720px; margin: 0 auto; padding: clamp(16px, 4vw, 32px);
+    min-height: 100dvh; display: flex; flex-direction: column;
+  }
+
+  .topbar { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+  .brand { display: flex; align-items: center; gap: 12px; font-weight: 800; letter-spacing: -.02em; font-size: 20px; }
+  .brand .dot {
+    width: 12px; height: 12px; border-radius: 999px; background: var(--accent);
+    box-shadow: 0 0 0 4px color-mix(in srgb, var(--accent) 22%, transparent);
+    transition: background .4s, box-shadow .4s;
+  }
+  .brand small { color: var(--muted); font-weight: 600; font-size: 12px; }
+
+  /* selettore lingua */
+  .lang { display: inline-flex; background: var(--bg-soft); border: 1px solid var(--line); border-radius: 999px; padding: 4px; }
+  .lang button {
+    border: none; background: transparent; color: var(--muted); font: inherit; font-weight: 700; font-size: 13px;
+    padding: 6px 12px; border-radius: 999px; cursor: pointer; transition: color .2s, background .2s;
+  }
+  .lang button.on { background: var(--accent); color: #07122c; }
+
+  .screen { display: none; flex: 1; flex-direction: column; }
+  .screen.active { display: flex; animation: fade .42s cubic-bezier(.16,1,.3,1); }
+  @keyframes fade { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: none; } }
+
+  h1 { font-size: clamp(28px, 7vw, 44px); line-height: 1.04; letter-spacing: -.03em; margin: .5em 0 .2em; }
+  p.lead { color: var(--muted); font-size: 16px; line-height: 1.5; max-width: 48ch; margin: 0 0 28px; }
+
+  .choices { display: grid; gap: 14px; }
+  .choice {
+    text-align: left; cursor: pointer; color: var(--text);
+    background: linear-gradient(180deg, var(--surface-2), var(--surface));
+    border: 1px solid var(--line); border-radius: 18px; padding: 22px; font: inherit;
+    display: flex; align-items: center; gap: 16px;
+    transition: transform .15s cubic-bezier(.16,1,.3,1), border-color .2s, box-shadow .25s;
+  }
+  .choice:hover { border-color: color-mix(in srgb, var(--accent) 60%, var(--line)); transform: translateY(-2px); box-shadow: 0 14px 40px rgba(0,0,0,.35); }
+  .choice:active { transform: scale(.985); }
+  .choice .ic { font-size: 30px; line-height: 1; }
+  .choice b { display: block; font-size: 18px; }
+  .choice span.d { color: var(--muted); font-size: 14px; }
+
+  label.fld { display: block; font-size: 13px; color: var(--muted); margin: 0 0 8px; font-weight: 600; }
+  input[type=text], input[type=password] {
+    width: 100%; font: inherit; font-size: 18px; color: var(--text);
+    background: var(--bg-soft); border: 1px solid var(--line); border-radius: 14px; padding: 16px 18px; outline: none;
+    transition: border-color .2s, box-shadow .2s;
+  }
+  input:focus { border-color: var(--accent); box-shadow: 0 0 0 4px var(--glow); }
+
+  .btn {
+    width: 100%; cursor: pointer; font: inherit; font-weight: 700; font-size: 17px; color: #07122c;
+    background: var(--accent); border: none; border-radius: 14px; padding: 16px 18px; margin-top: 14px;
+    transition: transform .12s, filter .2s, opacity .2s;
+  }
+  .btn:hover { filter: brightness(1.07); }
+  .btn:active { transform: translateY(1px) scale(.99); }
+  .btn.ghost { background: transparent; color: var(--text); border: 1px solid var(--line); }
+  .btn.ghost:hover { border-color: var(--accent); }
+  .btn[disabled] { opacity: .4; cursor: not-allowed; }
+  .err { color: #ff8a8a; font-size: 14px; min-height: 20px; margin-top: 10px; }
+
+  .statusbar { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin: 18px 0 8px; }
+  .pill { display: inline-flex; align-items: center; gap: 8px; background: var(--surface); border: 1px solid var(--line);
+    border-radius: 999px; padding: 8px 14px; font-size: 13px; font-weight: 600; }
+  .pill .swatch { width: 14px; height: 14px; border-radius: 5px; background: var(--accent); transition: background .4s; }
+  .pill.live { color: #5cf08a; border-color: color-mix(in srgb,#30d158 50%, var(--line)); }
+  .pill.shut { color: var(--muted); }
+
+  /* ---- Participant buzzer ---- */
+  .buzzzone { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 26px; padding: 20px 0; }
+  .buzzer {
+    position: relative; width: min(74vw, 300px); aspect-ratio: 1; border-radius: 999px; border: none; cursor: pointer; color: #07122c;
+    font-weight: 900; font-size: clamp(26px, 8vw, 40px); letter-spacing: .02em; text-transform: uppercase;
+    background: radial-gradient(circle at 38% 32%, color-mix(in srgb, var(--accent) 78%, #fff 22%), var(--accent) 62%);
+    box-shadow: 0 24px 60px var(--glow), 0 8px 20px rgba(0,0,0,.5), inset 0 -10px 26px rgba(0,0,0,.28), inset 0 8px 22px rgba(255,255,255,.35);
+    transition: transform .08s ease, filter .25s, box-shadow .35s, background .4s; touch-action: manipulation; user-select: none;
+  }
+  .buzzer::after { content: ""; position: absolute; inset: -10px; border-radius: inherit; border: 2px solid color-mix(in srgb, var(--accent) 55%, transparent); }
+  .buzzer.ready { animation: pulse 1.6s ease-in-out infinite; }
+  @keyframes pulse {
+    0%,100% { box-shadow: 0 24px 60px var(--glow), 0 8px 20px rgba(0,0,0,.5), inset 0 -10px 26px rgba(0,0,0,.28), inset 0 8px 22px rgba(255,255,255,.35); }
+    50% { box-shadow: 0 30px 92px var(--accent), 0 8px 20px rgba(0,0,0,.5), inset 0 -10px 26px rgba(0,0,0,.28), inset 0 8px 22px rgba(255,255,255,.45); }
+  }
+  .buzzer:active { transform: scale(.95); }
+  .buzzer[disabled] { cursor: not-allowed; filter: grayscale(.7) brightness(.62); animation: none; box-shadow: 0 10px 30px rgba(0,0,0,.5), inset 0 -10px 26px rgba(0,0,0,.4); }
+  .buzzer .sub { display:block; font-size: 12px; font-weight: 700; letter-spacing: .14em; opacity: .82; margin-top: 6px; }
+
+  .feedback { text-align: center; min-height: 64px; }
+  .feedback .big { font-size: clamp(22px, 6vw, 30px); font-weight: 800; letter-spacing: -.02em; }
+  .feedback .small { color: var(--muted); font-size: 15px; margin-top: 4px; }
+  .feedback .win { color: var(--accent); }
+  @keyframes pop { 0%{transform:scale(.4);opacity:0} 60%{transform:scale(1.12)} 100%{transform:scale(1);opacity:1} }
+  .pop { animation: pop .42s cubic-bezier(.16,1,.3,1); }
+
+  /* ---- Referee winner stage (per il monitor) ---- */
+  .stage {
+    position: relative; overflow: hidden; border-radius: 24px; border: 1px solid var(--line);
+    background: linear-gradient(180deg, var(--surface-2), var(--surface));
+    padding: clamp(28px, 6vw, 56px) 24px; text-align: center; margin: 8px 0 18px;
+    min-height: clamp(220px, 34vh, 340px); display: flex; flex-direction: column; align-items: center; justify-content: center;
+    transition: border-color .4s, box-shadow .5s;
+  }
+  .stage.won { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent), 0 24px 90px var(--glow); }
+  .stage.live { border-color: color-mix(in srgb,#30d158 45%, var(--line)); }
+  .stage-eyebrow { font-size: clamp(13px, 2.6vw, 16px); font-weight: 800; letter-spacing: .22em; text-transform: uppercase; color: var(--muted); margin-bottom: 14px; }
+  .stage.won .stage-eyebrow { color: var(--accent); }
+  .stage.live .stage-eyebrow { color: #5cf08a; }
+  .winner-name {
+    font-size: clamp(40px, 13vw, 116px); font-weight: 900; line-height: .98; letter-spacing: -.03em;
+    background: linear-gradient(180deg, #fff, color-mix(in srgb, var(--accent) 70%, #fff));
+    -webkit-background-clip: text; background-clip: text; color: transparent;
+    word-break: break-word; padding: 0 6px;
+  }
+  .stage-big { font-size: clamp(26px, 6vw, 44px); font-weight: 800; letter-spacing: -.02em; }
+  .stage-sub { color: var(--muted); font-size: clamp(14px, 2.6vw, 18px); margin-top: 14px; font-weight: 600; }
+  .stage.won .stage-sub { color: color-mix(in srgb, var(--accent) 80%, #fff); }
+  .reveal { animation: reveal .5s cubic-bezier(.16,1,.3,1); }
+  @keyframes reveal { 0%{transform:scale(.6) translateY(14px);opacity:0;filter:blur(6px)} 100%{transform:none;opacity:1;filter:none} }
+  .stage.live .stage-big { animation: breathe 1.8s ease-in-out infinite; }
+  @keyframes breathe { 0%,100%{opacity:.65;transform:scale(.99)} 50%{opacity:1;transform:scale(1.01)} }
+  /* coriandoli */
+  .confetti { position: absolute; top: -12px; width: 9px; height: 14px; border-radius: 2px; opacity: 0; pointer-events: none; }
+  @keyframes fall { 0%{transform:translateY(-20px) rotate(0);opacity:1} 100%{transform:translateY(var(--fy)) rotate(var(--fr));opacity:0} }
+
+  /* ---- Referee controls + lists ---- */
+  .ctrls { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin: 0 0 18px; }
+  .ctrls .btn { margin: 0; }
+  .btn.big { font-size: 18px; padding: 20px; }
+  .panel { background: var(--surface); border: 1px solid var(--line); border-radius: 18px; padding: 4px 18px; margin-bottom: 16px; }
+  .panel h3 { font-size: 13px; letter-spacing: .04em; text-transform: uppercase; color: var(--muted); margin: 16px 0 12px; }
+  ul.list { list-style: none; margin: 0 0 14px; padding: 0; }
+  ul.list li { display: flex; align-items: center; gap: 12px; padding: 12px 0; border-top: 1px solid var(--line); font-size: 16px; }
+  ul.list li:first-child { border-top: none; }
+  .num { width: 30px; height: 30px; flex: none; border-radius: 9px; background: var(--bg-soft); display: grid; place-items: center; font-weight: 800; font-size: 14px; color: var(--muted); }
+  li.first .num { background: var(--accent); color: #07122c; }
+  li.first { color: var(--accent); font-weight: 800; }
+  .winner-tag { margin-left: auto; font-size: 11px; font-weight: 800; letter-spacing: .1em; background: var(--accent); color: #07122c; padding: 5px 10px; border-radius: 999px; }
+  .empty { color: var(--muted); padding: 14px 0; font-size: 15px; }
+  .time { margin-left: auto; color: var(--muted); font-size: 13px; font-variant-numeric: tabular-nums; }
+  li.first .time { color: color-mix(in srgb, var(--accent) 80%, #fff); }
+  .foot { color: var(--muted); font-size: 12px; text-align: center; padding-top: 14px; }
+  .conn { display:inline-block; width:8px; height:8px; border-radius:999px; background:#5cf08a; margin-right:6px; }
+  .conn.off { background:#ff8a8a; }
+
+  @media (prefers-reduced-motion: reduce) {
+    *, .buzzer.ready, .stage.live .stage-big { animation: none !important; transition-duration: .01ms !important; }
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="topbar">
+    <div class="brand">
+      <span class="dot"></span>
+      <div>Trivia Buzzer <small id="connState"></small></div>
+    </div>
+    <div class="lang" id="lang">
+      <button data-lang="it">IT</button>
+      <button data-lang="en">EN</button>
+    </div>
+  </div>
+
+  <!-- SCHERMATA: scelta ruolo -->
+  <section class="screen active" id="screen-role">
+    <h1 data-i18n="role_title"></h1>
+    <p class="lead" data-i18n="role_lead"></p>
+    <div class="choices">
+      <button class="choice" id="goReferee">
+        <span class="ic">🎛️</span>
+        <span><b data-i18n="role_ref_title"></b><span class="d" data-i18n="role_ref_desc"></span></span>
+      </button>
+      <button class="choice" id="goPlayer">
+        <span class="ic">⚡</span>
+        <span><b data-i18n="role_player_title"></b><span class="d" data-i18n="role_player_desc"></span></span>
+      </button>
+    </div>
+  </section>
+
+  <!-- SCHERMATA: accesso arbitro -->
+  <section class="screen" id="screen-refauth">
+    <h1 data-i18n="refauth_title"></h1>
+    <p class="lead" data-i18n="refauth_lead"></p>
+    <label class="fld" for="pw" data-i18n="refauth_label"></label>
+    <input type="password" id="pw" autocomplete="off" />
+    <div class="err" id="pwErr"></div>
+    <button class="btn" id="pwBtn" data-i18n="refauth_btn"></button>
+    <button class="btn ghost" id="backFromAuth" data-i18n="back"></button>
+  </section>
+
+  <!-- SCHERMATA: registrazione partecipante -->
+  <section class="screen" id="screen-join">
+    <h1 data-i18n="join_title"></h1>
+    <p class="lead" data-i18n="join_lead"></p>
+    <label class="fld" for="nick" data-i18n="join_label"></label>
+    <input type="text" id="nick" maxlength="24" autocomplete="off" />
+    <div class="err" id="joinErr"></div>
+    <button class="btn" id="joinBtn" data-i18n="join_btn"></button>
+    <button class="btn ghost" id="backFromJoin" data-i18n="back"></button>
+  </section>
+
+  <!-- SCHERMATA: partecipante (buzzer) -->
+  <section class="screen" id="screen-player">
+    <div class="statusbar">
+      <span class="pill"><span class="swatch"></span><span id="pRound"></span></span>
+      <span class="pill" id="pStatus"></span>
+    </div>
+    <div class="buzzzone">
+      <button class="buzzer" id="buzzer" disabled>
+        <span id="buzzLabel"></span>
+        <span class="sub" id="buzzSub"></span>
+      </button>
+      <div class="feedback" id="feedback">
+        <div class="big" id="fbBig"></div>
+        <div class="small" id="fbSmall"></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- SCHERMATA: arbitro -->
+  <section class="screen" id="screen-ref">
+    <div class="statusbar">
+      <span class="pill"><span class="swatch"></span><span id="rRound"></span></span>
+      <span class="pill shut" id="rStatus"></span>
+    </div>
+
+    <div class="stage" id="stage"></div>
+
+    <div class="ctrls">
+      <button class="btn big" id="openBtn" data-i18n="btn_open"></button>
+      <button class="btn big ghost" id="resetBtn" data-i18n="btn_reset"></button>
+    </div>
+
+    <div class="panel">
+      <h3 data-i18n="ref_order"></h3>
+      <ul class="list" id="buzzList"></ul>
+    </div>
+    <div class="panel">
+      <h3><span data-i18n="ref_players"></span> (<span id="pCount">0</span>)</h3>
+      <ul class="list" id="partList"></ul>
+    </div>
+    <div class="foot" data-i18n="ref_color_note"></div>
+  </section>
+</div>
+
+<script src="/socket.io/socket.io.js"></script>
+<script>
+(function () {
+  // ---------------- i18n ----------------
+  const I18N = {
+    it: {
+      conn_connecting: "connessione…", conn_on: "connesso", conn_off: "disconnesso",
+      role_title: "Chi sei?",
+      role_lead: "Scegli il tuo ruolo. L'arbitro gestisce il gioco, i partecipanti si prenotano per rispondere.",
+      role_ref_title: "Arbitro", role_ref_desc: "Apre le prenotazioni, vede chi arriva primo, fa il reset.",
+      role_player_title: "Partecipante", role_player_desc: "Ti registri con un nickname e premi il pulsante per prenotarti.",
+      refauth_title: "Accesso arbitro", refauth_lead: "Inserisci la password per gestire il gioco.",
+      refauth_label: "Password", refauth_btn: "Accedi",
+      join_title: "Il tuo nickname", join_lead: "Sarà visibile all'arbitro e sul monitor. Scegline uno riconoscibile.",
+      join_label: "Nickname", join_btn: "Entra in gioco", back: "Indietro",
+      round: "Domanda {n}", status_waiting: "In attesa",
+      status_open_player: "APERTE — prenotati!", status_open_ref: "Prenotazioni APERTE", status_closed_ref: "Prenotazioni chiuse",
+      btn_open: "▶ Apri prenotazioni", btn_reset: "↺ Reset / Nuova domanda",
+      ref_order: "Ordine di prenotazione", ref_no_buzz_open: "In attesa che qualcuno prenoti…", ref_no_buzz_closed: "Apri le prenotazioni per iniziare.",
+      ref_players: "Partecipanti collegati", ref_no_players: "In attesa di giocatori…",
+      ref_color_note: "Il colore del pulsante cambia ad ogni nuova domanda.",
+      can_answer: "PUÒ RISPONDERE",
+      buzz_label: "PRENOTA", buzz_done: "✓", buzz_sub_wait: "in attesa dell'arbitro", buzz_sub_now: "premi ora!", buzz_sub_done: "prenotato",
+      stage_first: "Ha prenotato per primo", stage_can_answer: "Domanda {n} · può rispondere",
+      stage_open_eyebrow: "Prenotazioni aperte", stage_open_big: "In attesa della prima prenotazione…",
+      stage_ready_eyebrow: "Domanda {n}", stage_ready_big: "Pronti?", stage_ready_sub: "Apri le prenotazioni quando leggi la domanda",
+      pl_hi: "Ciao {name} 👋", pl_hold: "Tieni il dito pronto.",
+      pl_go: "Via! 🚀", pl_go_sub: "Chi preme prima risponde.",
+      pl_win_big: "🏆 Tocca a te!", pl_win_sub: "Sei arrivato primo. Rispondi pure.",
+      pl_pos_big: "Sei il {n}°", pl_pos_sub: "Prenotazione registrata. Aspetta il tuo turno.",
+      pl_newq_big: "Nuova domanda! 🎲", pl_newq_sub: "Pulsante {color}. Pronti…",
+      err_nick: "Scrivi un nickname.", err_pw: "Password errata.",
+      colors: { red:"rosso", blue:"blu", green:"verde", amber:"ambra", violet:"viola", magenta:"magenta", cyan:"ciano", orange:"arancio" },
+    },
+    en: {
+      conn_connecting: "connecting…", conn_on: "connected", conn_off: "disconnected",
+      role_title: "Who are you?",
+      role_lead: "Pick your role. The referee runs the game, players buzz in to answer.",
+      role_ref_title: "Referee", role_ref_desc: "Opens buzzing, sees who's first, resets the round.",
+      role_player_title: "Player", role_player_desc: "Register a nickname and hit the button to buzz in.",
+      refauth_title: "Referee access", refauth_lead: "Enter the password to run the game.",
+      refauth_label: "Password", refauth_btn: "Enter",
+      join_title: "Your nickname", join_lead: "Visible to the referee and on the monitor. Pick a recognisable one.",
+      join_label: "Nickname", join_btn: "Join the game", back: "Back",
+      round: "Question {n}", status_waiting: "Waiting",
+      status_open_player: "OPEN — buzz now!", status_open_ref: "Buzzing OPEN", status_closed_ref: "Buzzing closed",
+      btn_open: "▶ Open buzzing", btn_reset: "↺ Reset / New question",
+      ref_order: "Buzz order", ref_no_buzz_open: "Waiting for the first buzz…", ref_no_buzz_closed: "Open buzzing to start.",
+      ref_players: "Connected players", ref_no_players: "Waiting for players…",
+      ref_color_note: "The button colour changes with every new question.",
+      can_answer: "CAN ANSWER",
+      buzz_label: "BUZZ", buzz_done: "✓", buzz_sub_wait: "waiting for the referee", buzz_sub_now: "press now!", buzz_sub_done: "buzzed",
+      stage_first: "Buzzed in first", stage_can_answer: "Question {n} · can answer",
+      stage_open_eyebrow: "Buzzing open", stage_open_big: "Waiting for the first buzz…",
+      stage_ready_eyebrow: "Question {n}", stage_ready_big: "Ready?", stage_ready_sub: "Open buzzing when you read the question",
+      pl_hi: "Hi {name} 👋", pl_hold: "Keep your finger ready.",
+      pl_go: "Go! 🚀", pl_go_sub: "First to press answers.",
+      pl_win_big: "🏆 Your turn!", pl_win_sub: "You buzzed in first. Go ahead and answer.",
+      pl_pos_big: "You're #{n}", pl_pos_sub: "Buzz registered. Wait your turn.",
+      pl_newq_big: "New question! 🎲", pl_newq_sub: "{color} button. Get ready…",
+      err_nick: "Enter a nickname.", err_pw: "Wrong password.",
+      colors: { red:"red", blue:"blue", green:"green", amber:"amber", violet:"violet", magenta:"magenta", cyan:"cyan", orange:"orange" },
+    },
+  };
+
+  let lang = localStorage.getItem("tb_lang") || ((navigator.language || "").toLowerCase().startsWith("it") ? "it" : "en");
+  if (!I18N[lang]) lang = "it";
+
+  function t(key, vars) {
+    let s = (I18N[lang] && I18N[lang][key]) || key;
+    if (vars) for (const k in vars) s = s.replace("{" + k + "}", vars[k]);
+    return s;
+  }
+  function colorName(key) { return (I18N[lang].colors[key]) || key; }
+
+  function applyI18n() {
+    document.documentElement.lang = lang;
+    document.querySelectorAll("[data-i18n]").forEach((el) => { el.textContent = t(el.getAttribute("data-i18n")); });
+    document.getElementById("nick").placeholder = lang === "it" ? "Es. Squadra Fulmine" : "e.g. Team Lightning";
+    document.getElementById("pw").placeholder = "••••••••";
+    document.querySelectorAll("#lang button").forEach((b) => b.classList.toggle("on", b.dataset.lang === lang));
+    setConn(connected);
+    if (lastState) rerender(lastState);
+  }
+
+  document.getElementById("lang").addEventListener("click", (e) => {
+    const b = e.target.closest("button"); if (!b) return;
+    lang = b.dataset.lang; localStorage.setItem("tb_lang", lang); applyI18n();
+  });
+
+  // ---------------- helpers ----------------
+  const $ = (id) => document.getElementById(id);
+  const screens = { role: $("screen-role"), refauth: $("screen-refauth"), join: $("screen-join"), player: $("screen-player"), ref: $("screen-ref") };
+  function show(name) { Object.values(screens).forEach((s) => s.classList.remove("active")); screens[name].classList.add("active"); }
+  function escapeHtml(s) { return String(s).replace(/[&<>"']/g, (c) => ({ "&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;" }[c])); }
+  function fmtTime(ms) { const d = new Date(ms); return d.toLocaleTimeString(lang === "it" ? "it-IT" : "en-GB", { hour12: false }) + "." + String(d.getMilliseconds()).padStart(3, "0"); }
+
+  // ---------------- stato app ----------------
+  const socket = io();
+  let role = null, myId = null, myName = "", connected = false;
+  let lastState = null, lastRound = 0, lastBuzzOpen = false, lastWinnerId = null;
+
+  function setConn(on) { $("connState").innerHTML = '<span class="conn' + (on ? "" : " off") + '"></span>' + (on ? t("conn_on") : t("conn_off")); }
+
+  function applyColor(color) {
+    if (!color) return;
+    document.documentElement.style.setProperty("--accent", color.hex);
+    document.documentElement.style.setProperty("--glow", color.glow);
+    const meta = document.querySelector('meta[name="theme-color"]'); if (meta) meta.setAttribute("content", color.hex);
+  }
+
+  // ---------------- audio + coriandoli (animazioni) ----------------
+  let actx = null;
+  function chime() {
+    try {
+      actx = actx || new (window.AudioContext || window.webkitAudioContext)();
+      const now = actx.currentTime; const notes = [523.25, 659.25, 783.99, 1046.5];
+      notes.forEach((f, i) => {
+        const o = actx.createOscillator(), g = actx.createGain();
+        o.type = "triangle"; o.frequency.value = f;
+        g.gain.setValueAtTime(0.0001, now + i * 0.08);
+        g.gain.exponentialRampToValueAtTime(0.18, now + i * 0.08 + 0.02);
+        g.gain.exponentialRampToValueAtTime(0.0001, now + i * 0.08 + 0.32);
+        o.connect(g).connect(actx.destination); o.start(now + i * 0.08); o.stop(now + i * 0.08 + 0.34);
+      });
+    } catch (e) {}
+  }
+  function confettiBurst(host) {
+    if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) return;
+    const accent = getComputedStyle(document.documentElement).getPropertyValue("--accent").trim() || "#ff2d55";
+    const palette = [accent, "#ffffff", "#5cf08a", "#0a84ff", "#ffd23f"];
+    for (let i = 0; i < 46; i++) {
+      const c = document.createElement("span"); c.className = "confetti";
+      c.style.left = Math.random() * 100 + "%";
+      c.style.background = palette[(Math.random() * palette.length) | 0];
+      c.style.setProperty("--fy", (host.clientHeight + 40 + Math.random() * 60) + "px");
+      c.style.setProperty("--fr", (Math.random() * 720 - 360) + "deg");
+      c.style.animation = "fall " + (900 + Math.random() * 900) + "ms cubic-bezier(.2,.6,.4,1) " + (Math.random() * 200) + "ms forwards";
+      host.appendChild(c); setTimeout(() => c.remove(), 2200);
+    }
+  }
+
+  // ---------------- connessione ----------------
+  $("connState").innerHTML = '<span class="conn off"></span>' + t("conn_connecting");
+  socket.on("connect", () => { connected = true; setConn(true); });
+  socket.on("disconnect", () => { connected = false; setConn(false); });
+
+  // ---------------- navigazione ----------------
+  $("goReferee").onclick = () => { show("refauth"); setTimeout(() => $("pw").focus(), 50); };
+  $("goPlayer").onclick = () => { show("join"); setTimeout(() => $("nick").focus(), 50); };
+  $("backFromJoin").onclick = () => show("role");
+  $("backFromAuth").onclick = () => show("role");
+
+  // ---------------- auth arbitro ----------------
+  function doAuth() {
+    const pw = $("pw").value; $("pwErr").textContent = "";
+    $("pwBtn").disabled = true;
+    socket.emit("referee:auth", pw, (res) => {
+      $("pwBtn").disabled = false;
+      if (!res || !res.ok) { $("pwErr").textContent = t("err_pw"); return; }
+      role = "ref"; chime(); show("ref"); if (lastState) rerender(lastState);
+    });
+  }
+  $("pwBtn").onclick = doAuth;
+  $("pw").addEventListener("keydown", (e) => { if (e.key === "Enter") doAuth(); });
+
+  // ---------------- join partecipante ----------------
+  function doJoin() {
+    const name = $("nick").value.trim(); $("joinErr").textContent = "";
+    if (!name) { $("joinErr").textContent = t("err_nick"); return; }
+    $("joinBtn").disabled = true;
+    socket.emit("participant:join", name, (res) => {
+      $("joinBtn").disabled = false;
+      if (!res || !res.ok) { $("joinErr").textContent = (res && res.error) || "Error."; return; }
+      role = "player"; myId = res.id; myName = name; show("player"); if (lastState) rerender(lastState);
+    });
+  }
+  $("joinBtn").onclick = doJoin;
+  $("nick").addEventListener("keydown", (e) => { if (e.key === "Enter") doJoin(); });
+
+  // ---------------- buzzer ----------------
+  $("buzzer").addEventListener("click", () => {
+    if ($("buzzer").disabled) return;
+    if (navigator.vibrate) navigator.vibrate(40);
+    socket.emit("participant:buzz", null, () => {});
+  });
+
+  // ---------------- comandi arbitro ----------------
+  $("openBtn").onclick = () => socket.emit("referee:open");
+  $("resetBtn").onclick = () => socket.emit("referee:reset");
+
+  // ---------------- stato dal server ----------------
+  socket.on("state", (st) => { rerender(st); });
+
+  function rerender(st) {
+    lastState = st;
+    applyColor(st.color);
+    const roundChanged = st.round !== lastRound;
+    const justOpened = st.buzzOpen && !lastBuzzOpen;
+    lastRound = st.round; lastBuzzOpen = st.buzzOpen;
+    if (role === "ref") renderRef(st);
+    if (role === "player") renderPlayer(st, roundChanged, justOpened);
+  }
+
+  function renderRef(st) {
+    $("rRound").textContent = t("round", { n: st.round });
+    const status = $("rStatus");
+    if (st.buzzOpen) { status.textContent = t("status_open_ref"); status.className = "pill live"; }
+    else { status.textContent = t("status_closed_ref"); status.className = "pill shut"; }
+    $("openBtn").disabled = st.buzzOpen;
+
+    // ---- palco vincitore (per il monitor) ----
+    const stage = $("stage");
+    const winner = st.buzzes[0];
+    if (winner) {
+      const isNew = winner.socketId !== lastWinnerId;
+      stage.className = "stage won";
+      stage.innerHTML =
+        '<div class="stage-eyebrow">🏆 ' + t("stage_first") + "</div>" +
+        '<div class="winner-name' + (isNew ? " reveal" : "") + '">' + escapeHtml(winner.nickname) + "</div>" +
+        '<div class="stage-sub">' + t("stage_can_answer", { n: st.round }) + "</div>";
+      if (isNew) { lastWinnerId = winner.socketId; confettiBurst(stage); chime(); }
+    } else {
+      lastWinnerId = null;
+      if (st.buzzOpen) {
+        stage.className = "stage live";
+        stage.innerHTML =
+          '<div class="stage-eyebrow">● ' + t("stage_open_eyebrow") + "</div>" +
+          '<div class="stage-big">' + t("stage_open_big") + "</div>";
+      } else {
+        stage.className = "stage";
+        stage.innerHTML =
+          '<div class="stage-eyebrow">' + t("stage_ready_eyebrow", { n: st.round }) + "</div>" +
+          '<div class="stage-big">' + t("stage_ready_big") + "</div>" +
+          '<div class="stage-sub">' + t("stage_ready_sub") + "</div>";
+      }
+    }
+
+    // ---- ordine completo ----
+    const bl = $("buzzList");
+    if (!st.buzzes.length) {
+      bl.innerHTML = '<li class="empty" style="border:none">' + (st.buzzOpen ? t("ref_no_buzz_open") : t("ref_no_buzz_closed")) + "</li>";
+    } else {
+      bl.innerHTML = st.buzzes.map((b) =>
+        '<li class="' + (b.position === 1 ? "first" : "") + '">' +
+          '<span class="num">' + b.position + "</span><span>" + escapeHtml(b.nickname) + "</span>" +
+          (b.position === 1 ? '<span class="winner-tag">' + t("can_answer") + "</span>" : '<span class="time">' + fmtTime(b.at) + "</span>") +
+        "</li>"
+      ).join("");
+    }
+
+    // ---- partecipanti ----
+    $("pCount").textContent = st.participantCount;
+    const pl = $("partList");
+    pl.innerHTML = st.participants.length
+      ? st.participants.map((p, i) => '<li><span class="num">' + (i + 1) + "</span><span>" + escapeHtml(p.nickname) + "</span></li>").join("")
+      : '<li class="empty" style="border:none">' + t("ref_no_players") + "</li>";
+  }
+
+  function renderPlayer(st, roundChanged, justOpened) {
+    $("pRound").textContent = t("round", { n: st.round });
+    const mine = st.buzzes.find((b) => b.socketId === myId);
+    const buzzer = $("buzzer"), pStatus = $("pStatus"), fbBig = $("fbBig"), fbSmall = $("fbSmall");
+
+    if (st.buzzOpen) { pStatus.textContent = t("status_open_player"); pStatus.className = "pill live"; }
+    else { pStatus.textContent = t("status_waiting"); pStatus.className = "pill"; }
+
+    if (mine) {
+      buzzer.disabled = true; buzzer.classList.remove("ready");
+      $("buzzLabel").textContent = t("buzz_done"); $("buzzSub").textContent = t("buzz_sub_done");
+      if (mine.position === 1) {
+        fbBig.innerHTML = '<span class="win">' + t("pl_win_big") + "</span>"; fbSmall.textContent = t("pl_win_sub");
+      } else {
+        fbBig.innerHTML = t("pl_pos_big", { n: '<span class="win">' + mine.position + "</span>" }); fbSmall.textContent = t("pl_pos_sub");
+      }
+    } else if (st.buzzOpen) {
+      buzzer.disabled = false; buzzer.classList.add("ready");
+      $("buzzLabel").textContent = t("buzz_label"); $("buzzSub").textContent = t("buzz_sub_now");
+      fbBig.textContent = t("pl_go"); fbSmall.textContent = t("pl_go_sub");
+    } else {
+      buzzer.disabled = true; buzzer.classList.remove("ready");
+      $("buzzLabel").textContent = t("buzz_label"); $("buzzSub").textContent = t("buzz_sub_wait");
+      if (roundChanged && lastRound > 1) { fbBig.textContent = t("pl_newq_big"); fbSmall.textContent = t("pl_newq_sub", { color: colorName(st.color.key) }); }
+      else { fbBig.innerHTML = t("pl_hi", { name: escapeHtml(myName) }); fbSmall.textContent = t("pl_hold"); }
+    }
+
+    if (justOpened && !mine) { const fb = $("feedback"); fb.classList.remove("pop"); void fb.offsetWidth; fb.classList.add("pop"); }
+  }
+
+  // init
+  applyI18n();
+})();
+</script>
+</body>
+</html>
