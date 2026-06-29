@@ -1,0 +1,12 @@
+# Blueprint Render: configura il servizio in automatico.
+# Su Render basta "New > Blueprint" e selezionare il repo: legge tutto da qui.
+services:
+  - type: web
+    name: trivia-buzzer
+    runtime: node
+    plan: free
+    buildCommand: npm install
+    startCommand: npm start
+    envVars:
+      - key: REF_PASSWORD
+        sync: false   # te la chiede al primo deploy: scrivi la tua password arbitro
