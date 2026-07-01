@@ -32,7 +32,8 @@ function freshGame() {
     questionNo: 0,             // numero progressivo di domande poste
     colorIndex: 0,
     current: null,             // { idx, q, o, c }
-    answers: new Map(),        // socketId -> indice opzione scelta (domanda corrente)
+    answers: new Map(),        // socketId -> indice opzione scelta (prima risposta)
+    firstAnswer: null,         // { id, nickname, optionIndex, correct }
     used: new Set(),           // indici domande gia' usate (no ripetizioni)
     // i partecipanti e i punteggi sopravvivono finche' non si fa reset completo
     participants: new Map(),   // socketId -> { nickname, joinedAt }
@@ -69,6 +70,7 @@ function publicState() {
     phase: game.phase,
     color,
     question,
+    firstAnswer: game.firstAnswer,
     answeredCount: game.answers.size,
     participantCount: participants.length,
     totalQuestions: QUESTIONS.length,
@@ -107,9 +109,14 @@ io.on("connection", (socket) => {
     const p = game.participants.get(socket.id);
     if (!p) return ack?.({ ok: false, error: "Non sei registrato." });
     if (game.phase !== "question") return ack?.({ ok: false, error: "Non puoi rispondere ora." });
+    if (game.firstAnswer !== null) return ack?.({ ok: false, error: "Troppo tardi, qualcun altro ha già risposto." });
     const i = Number(optionIndex);
     if (!Number.isInteger(i) || i < 0 || i > 3) return ack?.({ ok: false, error: "Opzione non valida." });
-    game.answers.set(socket.id, i); // modificabile fino alla chiusura: sovrascrive
+    game.answers.set(socket.id, i);
+    const correct = i === game.current.c;
+    game.scores.set(socket.id, (game.scores.get(socket.id) || 0) + (correct ? 1 : -1));
+    game.firstAnswer = { id: socket.id, nickname: p.nickname, optionIndex: i, correct };
+    game.phase = "revealed";
     ack?.({ ok: true, selected: i });
     broadcast();
   });
@@ -129,30 +136,28 @@ io.on("connection", (socket) => {
   // Prossima domanda: estrae una domanda random non ancora usata, cambia colore.
   socket.on("referee:next", () => {
     if (!socket.data.isReferee) return;
-    if (game.phase === "question") return; // chiudi prima la domanda corrente
     const idx = pickRandomQuestion();
     const base = QUESTIONS[idx];
     game.current = { idx, q: base.q, o: base.o, c: base.c };
     game.answers = new Map();
+    game.firstAnswer = null;
     game.questionNo += 1;
-    game.colorIndex += 1; // colore diverso per ogni domanda
+    game.colorIndex += 1;
     game.phase = "question";
     broadcast();
   });
 
-  // Chiudi domanda e mostra la risposta: applica i punteggi (+1 / -1).
-  socket.on("referee:reveal", () => {
+  socket.on("referee:kick", (targetId) => {
     if (!socket.data.isReferee) return;
-    if (game.phase !== "question" || !game.current) return;
-    const correct = game.current.c;
-    for (const [id] of game.participants) {
-      const a = game.answers.get(id);
-      if (a === undefined) continue;            // chi non risponde: 0
-      const delta = a === correct ? 1 : -1;     // +1 giusta, -1 sbagliata
-      game.scores.set(id, (game.scores.get(id) || 0) + delta);
+    const target = io.sockets.sockets.get(targetId);
+    if (target) {
+      target.disconnect(true);
+    } else if (game.participants.delete(targetId)) {
+      game.scores.delete(targetId);
+      game.answers.delete(targetId);
+      if (game.firstAnswer?.id === targetId) game.firstAnswer = null;
+      broadcast();
     }
-    game.phase = "revealed";
-    broadcast();
   });
 
   // Reset completo: azzera punteggi, domande usate e stato. I partecipanti restano collegati.

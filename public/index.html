@@ -139,6 +139,21 @@
   .conn.off { background: var(--bad); }
   .confetti { position: absolute; top: -12px; width: 9px; height: 14px; border-radius: 2px; opacity: 0; pointer-events: none; }
   @keyframes fall { 0%{transform:translateY(-20px) rotate(0);opacity:1} 100%{transform:translateY(var(--fy)) rotate(var(--fr));opacity:0} }
+
+  /* ---- Prima risposta (banner arbitro) ---- */
+  .first-banner { margin-top: 16px; border-radius: 16px; padding: 16px 20px; display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; animation: pop .4s cubic-bezier(.16,1,.3,1); }
+  .first-banner.first-correct { background: color-mix(in srgb, var(--good) 22%, var(--surface)); border: 1px solid var(--good); box-shadow: 0 0 0 1px var(--good), 0 12px 36px rgba(48,209,88,.22); }
+  .first-banner.first-wrong   { background: color-mix(in srgb, var(--bad)  22%, var(--surface)); border: 1px solid var(--bad);  box-shadow: 0 0 0 1px var(--bad),  0 12px 36px rgba(255,107,107,.22); }
+  .first-name   { font-size: clamp(22px,5vw,32px); font-weight: 900; letter-spacing: -.02em; }
+  .first-verdict{ font-size: clamp(16px,3.5vw,22px); font-weight: 800; }
+  .first-banner.first-correct .first-verdict { color: var(--good); }
+  .first-banner.first-wrong   .first-verdict { color: var(--bad);  }
+
+  /* ---- Kick button ---- */
+  .bar-row { display: grid; grid-template-columns: 26px 1fr auto auto; align-items: center; gap: 12px; }
+  .kick-btn { background: transparent; border: 1px solid color-mix(in srgb, var(--bad) 50%, var(--line)); color: var(--bad); border-radius: 8px; width: 30px; height: 30px; cursor: pointer; font-size: 13px; font-weight: 900; display: grid; place-items: center; transition: background .15s, border-color .15s; flex: none; }
+  .kick-btn:hover { background: color-mix(in srgb, var(--bad) 18%, transparent); border-color: var(--bad); }
+
   @media (prefers-reduced-motion: reduce){ *, .pop { animation: none !important; transition-duration: .01ms !important; } }
 </style>
 </head>
@@ -200,8 +215,7 @@
     <div class="stage" id="stage"></div>
 
     <div class="ctrls">
-      <button class="btn" id="nextBtn">▶ Prossima domanda</button>
-      <button class="btn ghost" id="revealBtn">✓ Mostra risposta</button>
+      <button class="btn full" id="nextBtn">▶ Prossima domanda</button>
       <button class="btn danger full" id="resetBtn">↺ Reset completo del gioco</button>
     </div>
 
@@ -254,7 +268,6 @@
 
   // comandi arbitro
   $("nextBtn").onclick = ()=>socket.emit("referee:next");
-  $("revealBtn").onclick = ()=>socket.emit("referee:reveal");
   $("resetBtn").onclick = ()=>{ if(confirm("Azzerare tutti i punteggi e ricominciare il gioco?")) socket.emit("referee:resetGame"); };
 
   socket.on("state", (st)=>rerender(st));
@@ -296,11 +309,18 @@
     html += '</div>';
 
     if(revealed){
-      if(mySelected===null) html += '<div class="result zero pop">Nessuna risposta · 0 punti</div>';
-      else if(mySelected===q.correct) html += '<div class="result good pop">Giusto! +1 punto 🎉</div>';
-      else html += '<div class="result bad pop">Sbagliato · −1 punto</div>';
+      const fa=st.firstAnswer;
+      if(!fa){
+        html += '<div class="result zero pop">Nessuna risposta · 0 punti</div>';
+      } else if(fa.id===myId){
+        html += fa.correct
+          ? '<div class="result good pop">Sei stato il PRIMO! Giusto! +1 punto 🎉</div>'
+          : '<div class="result bad pop">Sei stato il primo… ma sbagliato. −1 punto</div>';
+      } else {
+        html += '<div class="result zero pop"><b>'+esc(fa.nickname)+'</b> ha risposto per primo ('+(fa.correct?'giusto ✓':'sbagliato ✗')+')</div>';
+      }
     } else if(mySelected!==null){
-      html += '<div class="result zero">Risposta inviata: '+LETTERS[mySelected]+' · puoi ancora cambiarla</div>';
+      html += '<div class="result zero">Risposta inviata: '+LETTERS[mySelected]+'</div>';
     } else {
       html += '<div class="result zero">Tocca la risposta che ritieni corretta</div>';
     }
@@ -319,47 +339,58 @@
   // ---------- ARBITRO ----------
   function renderRef(st){
     const phase=st.phase;
-    const pill=$("rPhase");
-    pill.textContent = phase==="question" ? "Domanda aperta" : phase==="revealed" ? "Risposta mostrata" : "In attesa";
-    pill.parentElement.className = "pill"+(phase==="question"?" live":"");
-    $("rProgress").textContent = "Domanda "+(st.question?st.question.no:0)+" · "+st.usedCount+"/"+st.totalQuestions;
+    const pill=$(“rPhase”);
+    pill.textContent = phase===”question” ? “Domanda aperta” : phase===”revealed” ? “Risposta ricevuta” : “In attesa”;
+    pill.parentElement.className = “pill”+(phase===”question”?” live”:””);
+    $(“rProgress”).textContent = “Domanda “+(st.question?st.question.no:0)+” · “+st.usedCount+”/”+st.totalQuestions;
 
     // stage
-    const stage=$("stage");
+    const stage=$(“stage”);
     if(!st.question){
-      stage.className="stage";
-      stage.innerHTML = '<div class="qno">Pronti?</div><div class="qbig">Premi “Prossima domanda” per iniziare</div>';
+      stage.className=”stage”;
+      stage.innerHTML = '<div class=”qno”>Pronti?</div><div class=”qbig”>Premi “Prossima domanda” per iniziare</div>';
     } else {
-      const q=st.question, revealed=phase==="revealed";
-      stage.className = "stage"+(revealed?" revealed":"");
-      let opts = '<div class="opts-ref">';
-      q.o.forEach((opt,i)=>{ opts += '<div class="oref'+(revealed&&i===q.correct?" correct":"")+'"><span class="letter">'+LETTERS[i]+'</span><span>'+esc(opt)+'</span></div>'; });
+      const q=st.question, revealed=phase===”revealed”;
+      stage.className = “stage”+(revealed?” revealed”:””);
+      let opts = '<div class=”opts-ref”>';
+      q.o.forEach((opt,i)=>{ opts += '<div class=”oref'+(revealed&&i===q.correct?” correct”:””)+'”><span class=”letter”>'+LETTERS[i]+'</span><span>'+esc(opt)+'</span></div>'; });
       opts += '</div>';
-      stage.innerHTML = '<div class="qno">Domanda '+q.no+'</div><div class="qbig">'+esc(q.q)+'</div>'+opts
-        + '<div class="answered"><b>'+st.answeredCount+'</b> / '+st.participantCount+' hanno risposto</div>';
-      if(revealed && lastPhase!=="revealed"){ confetti(stage); chime(); }
+      let firstBanner = “”;
+      if(revealed && st.firstAnswer){
+        const fa=st.firstAnswer;
+        firstBanner = '<div class=”first-banner '+(fa.correct?”first-correct”:”first-wrong”)+'”>'
+          + '<span class=”first-name”>'+esc(fa.nickname)+'</span>'
+          + '<span class=”first-verdict”>'+(fa.correct?”GIUSTO! +1 punto ✓”:”SBAGLIATO! −1 punto ✗”)+'</span>'
+          + '</div>';
+      }
+      stage.innerHTML = '<div class=”qno”>Domanda '+q.no+'</div><div class=”qbig”>'+esc(q.q)+'</div>'+opts+firstBanner
+        + '<div class=”answered”><b>'+st.answeredCount+'</b> / '+st.participantCount+' hanno risposto</div>';
+      if(revealed && lastPhase!==”revealed”){ confetti(stage); chime(); }
     }
 
-    // pulsanti
-    $("nextBtn").disabled = phase==="question";
-    $("nextBtn").textContent = (phase==="revealed"||!st.question) && st.usedCount>0 ? "▶ Prossima domanda" : "▶ Prossima domanda";
-    $("revealBtn").disabled = phase!=="question";
+    // pulsanti — l'arbitro può sempre avanzare (anche per saltare)
+    $(“nextBtn”).disabled = false;
 
     // classifica / istogramma
-    $("pCount").textContent = st.participantCount;
-    const bars=$("bars");
+    $(“pCount”).textContent = st.participantCount;
+    const bars=$(“bars”);
     const arr=[...st.participants].sort((a,b)=>b.score-a.score);
-    if(!arr.length){ bars.innerHTML='<div class="empty">In attesa di partecipanti…</div>'; return; }
+    if(!arr.length){ bars.innerHTML='<div class=”empty”>In attesa di partecipanti…</div>'; return; }
     const maxAbs = Math.max(1, ...arr.map(p=>Math.abs(p.score)));
     bars.innerHTML = arr.map((p,i)=>{
       const neg=p.score<0; const w=Math.round(Math.abs(p.score)/maxAbs*100);
-      const ans = phase==="question" && p.answered ? ' · ✓' : '';
-      return '<div class="bar-row'+(i===0&&p.score>0?" lead":"")+'">'
-        + '<div class="bar-rank">'+(i+1)+'</div>'
-        + '<div class="bar-track"><div class="bar-name">'+esc(p.nickname)+ans+'</div>'
-        +   '<div class="bar-fill'+(neg?" neg":"")+'" style="width:'+w+'%"></div></div>'
-        + '<div class="bar-pts'+(neg?" neg":"")+'">'+p.score+'</div></div>';
-    }).join("");
+      const isFirst = phase===”revealed” && st.firstAnswer && st.firstAnswer.id===p.id;
+      return '<div class=”bar-row'+(i===0&&p.score>0?” lead”:””)+'”>'
+        + '<div class=”bar-rank”>'+(i+1)+'</div>'
+        + '<div class=”bar-track”><div class=”bar-name”>'+esc(p.nickname)+(isFirst?' <span style=”font-size:11px;opacity:.8”>★ 1°</span>':'')+'</div>'
+        +   '<div class=”bar-fill'+(neg?” neg”:””)+'” style=”width:'+w+'%”></div></div>'
+        + '<div class=”bar-pts'+(neg?” neg”:””)+'”>'+p.score+'</div>'
+        + '<button class=”kick-btn” data-id=”'+esc(p.id)+'” title=”Espelli '+esc(p.nickname)+'”>✕</button>'
+        + '</div>';
+    }).join(“”);
+    bars.querySelectorAll(“.kick-btn”).forEach(btn=>{
+      btn.onclick = ()=>socket.emit(“referee:kick”, btn.dataset.id);
+    });
   }
 })();
 </script>
