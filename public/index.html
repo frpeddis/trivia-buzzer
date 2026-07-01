@@ -339,57 +339,57 @@
   // ---------- ARBITRO ----------
   function renderRef(st){
     const phase=st.phase;
-    const pill=$(“rPhase”);
-    pill.textContent = phase===”question” ? “Domanda aperta” : phase===”revealed” ? “Risposta ricevuta” : “In attesa”;
-    pill.parentElement.className = “pill”+(phase===”question”?” live”:””);
-    $(“rProgress”).textContent = “Domanda “+(st.question?st.question.no:0)+” · “+st.usedCount+”/”+st.totalQuestions;
+    const pill=$("rPhase");
+    pill.textContent = phase==="question" ? "Domanda aperta" : phase==="revealed" ? "Risposta ricevuta" : "In attesa";
+    pill.parentElement.className = "pill"+(phase==="question"?" live":"");
+    $("rProgress").textContent = "Domanda "+(st.question?st.question.no:0)+" · "+st.usedCount+"/"+st.totalQuestions;
 
     // stage
-    const stage=$(“stage”);
+    const stage=$("stage");
     if(!st.question){
-      stage.className=”stage”;
-      stage.innerHTML = '<div class=”qno”>Pronti?</div><div class=”qbig”>Premi “Prossima domanda” per iniziare</div>';
+      stage.className="stage";
+      stage.innerHTML = '<div class="qno">Pronti?</div><div class="qbig">Premi "Prossima domanda" per iniziare</div>';
     } else {
-      const q=st.question, revealed=phase===”revealed”;
-      stage.className = “stage”+(revealed?” revealed”:””);
-      let opts = '<div class=”opts-ref”>';
-      q.o.forEach((opt,i)=>{ opts += '<div class=”oref'+(revealed&&i===q.correct?” correct”:””)+'”><span class=”letter”>'+LETTERS[i]+'</span><span>'+esc(opt)+'</span></div>'; });
+      const q=st.question, revealed=phase==="revealed";
+      stage.className = "stage"+(revealed?" revealed":"");
+      let opts = '<div class="opts-ref">';
+      q.o.forEach((opt,i)=>{ opts += '<div class="oref'+(revealed&&i===q.correct?" correct":"")+'"><span class="letter">'+LETTERS[i]+'</span><span>'+esc(opt)+'</span></div>'; });
       opts += '</div>';
-      let firstBanner = “”;
+      let firstBanner = "";
       if(revealed && st.firstAnswer){
         const fa=st.firstAnswer;
-        firstBanner = '<div class=”first-banner '+(fa.correct?”first-correct”:”first-wrong”)+'”>'
-          + '<span class=”first-name”>'+esc(fa.nickname)+'</span>'
-          + '<span class=”first-verdict”>'+(fa.correct?”GIUSTO! +1 punto ✓”:”SBAGLIATO! −1 punto ✗”)+'</span>'
+        firstBanner = '<div class="first-banner '+(fa.correct?"first-correct":"first-wrong")+'">'
+          + '<span class="first-name">'+esc(fa.nickname)+'</span>'
+          + '<span class="first-verdict">'+(fa.correct?"GIUSTO! +1 punto ✓":"SBAGLIATO! −1 punto ✗")+'</span>'
           + '</div>';
       }
-      stage.innerHTML = '<div class=”qno”>Domanda '+q.no+'</div><div class=”qbig”>'+esc(q.q)+'</div>'+opts+firstBanner
-        + '<div class=”answered”><b>'+st.answeredCount+'</b> / '+st.participantCount+' hanno risposto</div>';
-      if(revealed && lastPhase!==”revealed”){ confetti(stage); chime(); }
+      stage.innerHTML = '<div class="qno">Domanda '+q.no+'</div><div class="qbig">'+esc(q.q)+'</div>'+opts+firstBanner
+        + '<div class="answered"><b>'+st.answeredCount+'</b> / '+st.participantCount+' hanno risposto</div>';
+      if(revealed && lastPhase!=="revealed"){ confetti(stage); chime(); }
     }
 
     // pulsanti — l'arbitro può sempre avanzare (anche per saltare)
-    $(“nextBtn”).disabled = false;
+    $("nextBtn").disabled = false;
 
     // classifica / istogramma
-    $(“pCount”).textContent = st.participantCount;
-    const bars=$(“bars”);
+    $("pCount").textContent = st.participantCount;
+    const bars=$("bars");
     const arr=[...st.participants].sort((a,b)=>b.score-a.score);
-    if(!arr.length){ bars.innerHTML='<div class=”empty”>In attesa di partecipanti…</div>'; return; }
+    if(!arr.length){ bars.innerHTML='<div class="empty">In attesa di partecipanti…</div>'; return; }
     const maxAbs = Math.max(1, ...arr.map(p=>Math.abs(p.score)));
     bars.innerHTML = arr.map((p,i)=>{
       const neg=p.score<0; const w=Math.round(Math.abs(p.score)/maxAbs*100);
-      const isFirst = phase===”revealed” && st.firstAnswer && st.firstAnswer.id===p.id;
-      return '<div class=”bar-row'+(i===0&&p.score>0?” lead”:””)+'”>'
-        + '<div class=”bar-rank”>'+(i+1)+'</div>'
-        + '<div class=”bar-track”><div class=”bar-name”>'+esc(p.nickname)+(isFirst?' <span style=”font-size:11px;opacity:.8”>★ 1°</span>':'')+'</div>'
-        +   '<div class=”bar-fill'+(neg?” neg”:””)+'” style=”width:'+w+'%”></div></div>'
-        + '<div class=”bar-pts'+(neg?” neg”:””)+'”>'+p.score+'</div>'
-        + '<button class=”kick-btn” data-id=”'+esc(p.id)+'” title=”Espelli '+esc(p.nickname)+'”>✕</button>'
+      const isFirst = phase==="revealed" && st.firstAnswer && st.firstAnswer.id===p.id;
+      return '<div class="bar-row'+(i===0&&p.score>0?" lead":"")+'">'
+        + '<div class="bar-rank">'+(i+1)+'</div>'
+        + '<div class="bar-track"><div class="bar-name">'+esc(p.nickname)+(isFirst?' <span style="font-size:11px;opacity:.8">★ 1°</span>':'')+'</div>'
+        +   '<div class="bar-fill'+(neg?" neg":"")+'" style="width:'+w+'%"></div></div>'
+        + '<div class="bar-pts'+(neg?" neg":"")+'">'+p.score+'</div>'
+        + '<button class="kick-btn" data-id="'+esc(p.id)+'" title="Espelli '+esc(p.nickname)+'">✕</button>'
         + '</div>';
-    }).join(“”);
-    bars.querySelectorAll(“.kick-btn”).forEach(btn=>{
-      btn.onclick = ()=>socket.emit(“referee:kick”, btn.dataset.id);
+    }).join("");
+    bars.querySelectorAll(".kick-btn").forEach(btn=>{
+      btn.onclick = ()=>socket.emit("referee:kick", btn.dataset.id);
     });
   }
 })();
